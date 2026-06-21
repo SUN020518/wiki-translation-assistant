@@ -27,7 +27,16 @@ A semi-automatic Wikipedia translation helper. This tool fetches article wikitex
 - **Image & Category Check** — list source image files, warn about image copyright / fair use, and compare categories
 - **References Section Check** — verify target-language references section headings such as `References`, `각주`, `参考资料`, or `參考資料`
 
-These checks are **assistive only**. They cannot replace human proofreading. Do not publish AI translations without thorough manual review. All new factual content on Wikipedia must cite reliable sources. Image copyright must always be confirmed manually.
+### Phase 4 (Publishing compliance & final review)
+
+- **Talk Page Templates** — generate translated-page and educational-assignment template suggestions
+- **Translation Attribution** — generate recommended edit summaries and history-check reminders
+- **Educational Assignment Helper** — suggest course assignment templates for talk pages
+- **Page Move Checklist** — remind editors to move drafts to mainspace instead of copy-pasting when appropriate
+- **Edit Filter Risk Report** — flag policy risks and suggest compliant fixes
+- **Final Publishing Checklist** — combine all prior checks into a final human review list
+
+These checks are **assistive only**. They cannot replace human proofreading. Do not publish AI translations without thorough manual review. All new factual content on Wikipedia must cite reliable sources. Image copyright must always be confirmed manually. Do not try to bypass edit filters; fix the underlying policy or content issue instead.
 
 ## Requirements
 
@@ -65,7 +74,7 @@ The interface uses a light, Wikipedia-inspired editorial layout:
 
 - White / light-gray workspace with Wikipedia blue accents
 - Sidebar project controls (languages, title, fetch, generate draft)
-- Main tabs for source review, draft review, compliance checks, structure checks, export, and about
+- Main tabs for source review, draft review, compliance checks, publishing checks, export, and about
 - Status labels: Passed, Warning, Needs review, Info
 
 ### Usage
@@ -81,8 +90,13 @@ The interface uses a light, Wikipedia-inspired editorial layout:
 9. **Link Check** — review blue-link status, red-link risk, and temporary link template suggestions.
 10. **Image & Category Check** — review image files, copyright cautions, and target-wiki categories.
 11. **Structure Check** — verify references section status and disambiguation warnings.
-12. **Export** — copy or download the draft wikitext after manual review.
-13. **About** — workflow and policy reminders.
+12. **Publishing Checklist** — review mainspace move, title, redirects, categories, references, and post-publication monitoring.
+13. **Talk Page Templates** — prepare talk page templates for translated pages and educational assignments.
+14. **Attribution** — prepare a translation-source edit summary.
+15. **Edit Filter Risk** — review possible moderation risks and safe compliance fixes.
+16. **Final Review** — combine all checks into a final publication-readiness list.
+17. **Export** — copy or download the draft wikitext after manual review.
+18. **About** — workflow and policy reminders.
 
 ## Quality check details
 
@@ -148,12 +162,72 @@ Checks whether the draft contains a target-language references section heading:
 
 If missing, the tool shows a warning before export.
 
+### Talk Page Templates
+
+Generates talk page template suggestions for translated articles and educational assignments:
+
+- Korean: `ko:틀:번역된_문서`, `ko:틀:과제 문서`
+- Chinese: `zh:Template:Translated page`, `zh:Template:Educational assignment`
+- English: `Template:Translated page`, `{{Educational assignment}}`
+
+These templates should be placed on the **talk page**, not in the article body.
+
+### Translation Attribution
+
+Generates a recommended edit summary such as:
+
+- English: `Translated from English Wikipedia article "Article Title"; see its history for attribution.`
+- Korean: `한국어 번역: 영어 위키백과 "Article Title" 문서에서 번역함.`
+- Chinese: `翻译自英文维基百科条目“Article Title”，版权归其贡献者所有，见原文历史记录。`
+
+Editors must still check the original article history and identify the translated revision.
+
+### Educational Assignment Helper
+
+Suggests a talk page assignment template when the draft is part of a class or course project. Educational assignment templates should not be placed in the article page body.
+
+### Page Move Checklist
+
+Reviews publishing reminders:
+
+- Whether the title appears to be in User / Draft namespace
+- Whether the target title may already exist
+- Whether redirects may be needed
+- Whether references section and categories are present
+- Whether categories should be blue-linked
+- Whether interlanguage links / Wikidata sitelinks may need follow-up
+- Whether article history and talk page should be monitored after publishing
+
+The tool does **not** move pages automatically.
+
+### Edit Filter Risk Report
+
+Flags risks such as large unsourced additions, too many external links, machine-translation traces, promotional tone, suspicious URLs, disrupted templates, too few references, missing attribution, missing proofreading confirmation, or Korean polite style in a Korean article.
+
+It only suggests compliant fixes:
+
+- Add or restore reliable citations
+- Remove unsourced content
+- Review in a sandbox
+- Proofread manually
+- Check links and templates
+- Split large edits when appropriate
+
+It does **not** provide ways to bypass edit filters.
+
+### Final Publishing Checklist
+
+Combines all checks into a final publication-readiness list covering translation completion, references, unsourced AI content, templates, infobox, Korean style, blue/red links, image copyright, categories, references section, talk page templates, attribution, educational assignment, page move review, edit filter risk, and human proofreading.
+
 ## Important disclaimer
 
 - **Do not automatically publish AI or machine translations to Wikipedia.**
 - All output must be reviewed and edited by a human translator before any submission.
 - **All new factual statements must have reliable references.**
 - **Image copyright and fair-use status must be checked manually.**
+- **Do not attempt to bypass edit filters.**
+- **Human proofreading is required before publication.**
+- After publishing, monitor article history and the talk page for feedback.
 - This tool does not connect to Wikipedia edit APIs and cannot publish on your behalf.
 
 ## Project structure
@@ -163,12 +237,11 @@ If missing, the tool shows a warning before export.
 | `app.py` | Streamlit UI |
 | `wiki_api.py` | MediaWiki API client (fetch wikitext, page status, language links) |
 | `translator.py` | Translation logic (MVP placeholder) |
-| `validator.py` | Input validation + template/reference/link/media/category/structure/Korean style checkers |
+| `validator.py` | Input validation + template/reference/link/media/category/structure/publishing/Korean style checkers |
 | `requirements.txt` | Python dependencies |
 
 ## Planned future features
 
-- Publishing checklist before submission
 - Link localization improvements
 - More detailed target-wiki policy guidance
 

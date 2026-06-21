@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 import streamlit as st
 
 from translator import PLACEHOLDER_MARKER, translate_text
 from validator import (
+    build_final_publishing_checklist,
+    build_page_move_checklist,
+    check_edit_filter_risk,
     check_images_and_categories,
     check_korean_encyclopedic_style,
     check_links,
     check_references,
     check_templates,
     check_wiki_structure,
+    generate_educational_assignment_helper,
+    generate_talk_page_templates,
+    generate_translation_attribution,
     validate_lang_code,
     validate_title,
 )
@@ -30,7 +38,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-PHASE_LABEL = "Phase 3 — Link & Wiki Structure Checks"
+PHASE_LABEL = "Phase 4 — Publishing Compliance & Final Review"
 
 DISCLAIMER = (
     "This tool is a translation assistant only. Do not publish machine-generated "
@@ -339,7 +347,7 @@ def _render_header() -> None:
         <div class="wiki-doc-header">
             <h1>Wikipedia Translation Assistant</h1>
             <p class="wiki-subtitle">
-                Draft translation, citation checks, link review, structure checks, and publishing guidance
+                Draft translation, compliance checks, attribution helpers, and final publishing review
             </p>
             <span class="wiki-phase-badge">{PHASE_LABEL}</span>
         </div>
@@ -358,7 +366,8 @@ def _render_intro_panel() -> None:
                     <strong>What this tool does</strong>
                     <span>
                         Fetches Wikipedia wikitext, prepares a translation draft, and runs
-                        template, reference, link, media, category, and style checks.
+                        template, reference, link, media, category, publishing compliance,
+                        and final review checks.
                     </span>
                 </div>
                 <div class="wiki-intro-item">
@@ -387,6 +396,10 @@ def _init_session_state() -> None:
         "source_lang": "en",
         "target_lang": "ko",
         "article_title": "Alan Turing",
+        "target_title": "",
+        "source_revision_id": "",
+        "attribution_confirmed": False,
+        "human_proofreading_confirmed": False,
         "source_wikitext": "",
         "draft_wikitext": "",
         "fetch_error": "",
@@ -436,6 +449,16 @@ def _render_sidebar() -> tuple[str, str, str] | None:
         "Article title",
         value=st.session_state.article_title,
         help='Exact article title, e.g. "Alan Turing".',
+    )
+    st.session_state.target_title = st.sidebar.text_input(
+        "Target article title",
+        value=st.session_state.target_title,
+        help="Optional. Leave blank to reuse the source title.",
+    )
+    st.session_state.source_revision_id = st.sidebar.text_input(
+        "Source revision ID",
+        value=st.session_state.source_revision_id,
+        help="Optional but recommended for translated-page talk templates.",
     )
 
     validated = _validate_inputs()
@@ -499,6 +522,17 @@ def _render_sidebar() -> tuple[str, str, str] | None:
         else "Draft ready: **No**"
     )
 
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**Manual confirmations**")
+    st.session_state.attribution_confirmed = st.sidebar.checkbox(
+        "I will use a translation attribution edit summary",
+        value=st.session_state.attribution_confirmed,
+    )
+    st.session_state.human_proofreading_confirmed = st.sidebar.checkbox(
+        "Human proofreading completed",
+        value=st.session_state.human_proofreading_confirmed,
+    )
+
     st.sidebar.markdown(
         '<div class="wiki-safety-box"><strong>Safety reminder:</strong> '
         "Never publish unreviewed AI translations. All new statements need reliable "
@@ -523,6 +557,10 @@ def _need_source_and_draft() -> bool:
         _status_badge("warning", "Generate a draft using the sidebar controls first.")
         return False
     return True
+
+
+def _effective_target_title(source_title: str) -> str:
+    return st.session_state.target_title.strip() or source_title
 
 
 @st.cache_data(show_spinner=False)
@@ -553,6 +591,93 @@ def _build_link_report(
         target_page_candidates=candidates,
         target_page_statuses=statuses,
     )
+
+
+@st.cache_data(show_spinner=False)
+def _check_target_title_status(target_lang: str, target_title: str) -> dict:
+    statuses = check_pages_status(target_lang, [target_title])
+    return statuses.get(
+        target_title,
+        {
+            "exists": False,
+            "normalized_title": target_title,
+            "possible_disambiguation": False,
+            "categories": [],
+        },
+    )
+
+
+def _base_phase4_reports(
+    source_lang: str,
+    target_lang: str,
+    source_title: str,
+    target_title: str,
+) -> dict:
+    template_report = check_templates(
+        st.session_state.source_wikitext,
+        st.session_state.draft_wikitext,
+    )
+    reference_report = check_references(
+        st.session_state.source_wikitext,
+        st.session_state.draft_wikitext,
+    )
+    image_category_report = check_images_and_categories(
+        st.session_state.source_wikitext,
+        st.session_state.draft_wikitext,
+    )
+    link_report = _build_link_report(
+        st.session_state.source_wikitext,
+        source_lang,
+        target_lang,
+    )
+    structure_report = check_wiki_structure(
+        st.session_state.draft_wikitext,
+        target_lang,
+        link_report["disambiguation_warnings"],
+    )
+    talk_page_report = generate_talk_page_templates(
+        source_lang,
+        source_title,
+        target_lang,
+        target_title,
+        st.session_state.source_revision_id,
+    )
+    attribution_report = generate_translation_attribution(
+        source_lang,
+        source_title,
+        target_lang,
+        target_title,
+    )
+    educational_report = generate_educational_assignment_helper(target_lang)
+    target_status = _check_target_title_status(target_lang, target_title)
+    page_move_report = build_page_move_checklist(
+        st.session_state.draft_wikitext,
+        target_lang,
+        target_title,
+        target_status,
+    )
+    edit_filter_report = check_edit_filter_risk(
+        st.session_state.source_wikitext,
+        st.session_state.draft_wikitext,
+        target_lang,
+        reference_report,
+        template_report,
+        st.session_state.attribution_confirmed,
+        st.session_state.human_proofreading_confirmed,
+    )
+
+    return {
+        "template": template_report,
+        "reference": reference_report,
+        "image_category": image_category_report,
+        "link": link_report,
+        "structure": structure_report,
+        "talk_page": talk_page_report,
+        "attribution": attribution_report,
+        "educational": educational_report,
+        "page_move": page_move_report,
+        "edit_filter": edit_filter_report,
+    }
 
 
 def _tab_article_source(source_lang: str, target_lang: str, title: str) -> None:
@@ -1088,6 +1213,305 @@ def _tab_structure_check(source_lang: str, target_lang: str) -> None:
         _status_badge("info", reminder)
 
 
+def _phase4_status_level(status: str) -> str:
+    return {
+        "passed": "pass",
+        "needs_review": "warning",
+        "missing": "error",
+        "manual": "info",
+    }.get(status, "info")
+
+
+def _tab_publishing_checklist(
+    source_lang: str,
+    target_lang: str,
+    source_title: str,
+    target_title: str,
+) -> None:
+    _section(
+        "Publishing Checklist",
+        "Review page move, mainspace publishing, references, categories, redirects, and post-publication monitoring.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    if not _need_source_and_draft():
+        return
+
+    try:
+        with st.spinner("Checking target title and draft structure…"):
+            target_status = _check_target_title_status(target_lang, target_title)
+            report = build_page_move_checklist(
+                st.session_state.draft_wikitext,
+                target_lang,
+                target_title,
+                target_status,
+            )
+    except WikiAPIError as exc:
+        _status_badge("warning", f"Could not check target title existence: {exc}")
+        report = build_page_move_checklist(
+            st.session_state.draft_wikitext,
+            target_lang,
+            target_title,
+            {},
+        )
+
+    _summary_cards(
+        [
+            ("Target title", target_title, f"{target_lang}.wikipedia.org"),
+            ("Namespace guess", report["current_namespace_guess"], "Manual review"),
+            (
+                "Title exists",
+                "Yes" if report["target_title_exists"] else "Not found",
+                "Verify manually",
+            ),
+            (
+                "Categories",
+                str(report["categories_count"]),
+                "Draft categories",
+            ),
+        ]
+    )
+
+    _status_badge("info", report["reminder"])
+    _status_badge(
+        "warning",
+        "If this is a new article currently in User/Draft namespace, move it to mainspace instead of copy-pasting to preserve edit history.",
+    )
+
+    st.markdown("##### Page move / mainspace checklist")
+    for item in report["checklist"]:
+        _status_badge(
+            _phase4_status_level(item["status"]),
+            f"{item['item']} — {item['detail']}",
+        )
+
+
+def _tab_talk_page_templates(
+    source_lang: str,
+    target_lang: str,
+    source_title: str,
+    target_title: str,
+) -> None:
+    _section(
+        "Talk Page Templates",
+        "Prepare translated-page and educational-assignment templates for the talk page.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    report = generate_talk_page_templates(
+        source_lang,
+        source_title,
+        target_lang,
+        target_title,
+        st.session_state.source_revision_id,
+    )
+    educational = generate_educational_assignment_helper(target_lang)
+
+    _summary_cards(
+        [
+            ("Where to place", report["where_to_place"], "Not article body"),
+            ("Translated template", report["talk_page_templates"][0], "Attribution"),
+            ("Assignment template", report["talk_page_templates"][1], "If applicable"),
+            ("Target article", target_title, target_lang),
+        ]
+    )
+
+    _status_badge(
+        "warning",
+        "These templates belong on the talk page, not in the article page body.",
+    )
+    st.write(report["explanation"])
+
+    st.markdown("##### Copy-ready talk page wikitext")
+    st.code(report["copy_ready_talk_page_wikitext"], language=None)
+
+    st.markdown("##### Educational assignment helper")
+    _status_badge("info", educational["warning"])
+    st.write(f"Template: `{educational['template_name']}`")
+    st.code(educational["copy_ready_template"], language=None)
+
+
+def _tab_attribution(
+    source_lang: str,
+    target_lang: str,
+    source_title: str,
+    target_title: str,
+) -> None:
+    _section(
+        "Attribution",
+        "Prepare translation-source attribution for the edit summary and talk page.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    report = generate_translation_attribution(
+        source_lang,
+        source_title,
+        target_lang,
+        target_title,
+    )
+
+    _status_badge("warning", report["attribution_warning"])
+    _status_badge("info", report["reminder_to_check_original_history"])
+
+    st.markdown("##### Recommended edit summary")
+    st.code(report["recommended_edit_summary"], language=None)
+
+    st.markdown("##### Talk page translated-template reminder")
+    st.write(f"Suggested template: `{report['talk_page_translated_template']}`")
+
+    if st.session_state.attribution_confirmed:
+        _status_badge("pass", "Sidebar confirmation indicates you plan to use attribution.")
+    else:
+        _status_badge(
+            "warning",
+            "Confirm in the sidebar once you plan to use an attribution edit summary.",
+        )
+
+
+def _tab_edit_filter_risk(
+    source_lang: str,
+    target_lang: str,
+    source_title: str,
+    target_title: str,
+) -> None:
+    _section(
+        "Edit Filter Risk",
+        "Review possible moderation risks and policy-compliant fixes before publication.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    if not _need_source_and_draft():
+        return
+
+    try:
+        with st.spinner("Preparing risk report…"):
+            reports = _base_phase4_reports(source_lang, target_lang, source_title, target_title)
+    except WikiAPIError as exc:
+        _status_badge("warning", f"Could not refresh API-backed reports: {exc}")
+        template_report = check_templates(
+            st.session_state.source_wikitext,
+            st.session_state.draft_wikitext,
+        )
+        reference_report = check_references(
+            st.session_state.source_wikitext,
+            st.session_state.draft_wikitext,
+        )
+        risk_report = check_edit_filter_risk(
+            st.session_state.source_wikitext,
+            st.session_state.draft_wikitext,
+            target_lang,
+            reference_report,
+            template_report,
+            st.session_state.attribution_confirmed,
+            st.session_state.human_proofreading_confirmed,
+        )
+    else:
+        risk_report = reports["edit_filter"]
+
+    risk_level = risk_report["risk_level"]
+    level_to_status = {"low": "pass", "medium": "warning", "high": "error"}
+    _summary_cards(
+        [
+            ("Risk level", risk_level.upper(), "Pre-publication signal"),
+            (
+                "Risk reasons",
+                str(len(risk_report["risk_reasons"])),
+                "Review before publishing",
+            ),
+            (
+                "External links",
+                str(risk_report["signals"]["external_links_count"]),
+                "Draft wikitext",
+            ),
+            (
+                "Korean style findings",
+                str(risk_report["signals"]["korean_style_findings_count"]),
+                "If target is ko",
+            ),
+        ]
+    )
+    _status_badge(level_to_status.get(risk_level, "info"), f"Estimated risk: {risk_level}.")
+    _status_badge(
+        "info",
+        "This report gives compliance fixes only. It does not provide methods to bypass edit filters.",
+    )
+
+    st.markdown("##### Risk reasons")
+    if risk_report["risk_reasons"]:
+        for reason in risk_report["risk_reasons"]:
+            _status_badge("warning", reason)
+    else:
+        _status_badge("pass", "No major automated risk reasons detected.")
+
+    st.markdown("##### Suggested fixes")
+    if risk_report["suggested_fixes"]:
+        for fix in risk_report["suggested_fixes"]:
+            _status_badge("info", fix)
+    else:
+        _status_badge("pass", "No automated fixes suggested.")
+
+
+def _tab_final_review(
+    source_lang: str,
+    target_lang: str,
+    source_title: str,
+    target_title: str,
+) -> None:
+    _section(
+        "Final Review",
+        "Combine all checks into a final publication-readiness checklist.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    if not _need_source_and_draft():
+        return
+
+    try:
+        with st.spinner("Building final review checklist…"):
+            reports = _base_phase4_reports(source_lang, target_lang, source_title, target_title)
+    except WikiAPIError as exc:
+        _status_badge("error", f"Could not complete API-backed final review: {exc}")
+        return
+
+    checklist = build_final_publishing_checklist(
+        st.session_state.draft_wikitext,
+        reports["template"],
+        reports["reference"],
+        reports["link"],
+        reports["image_category"],
+        reports["structure"],
+        reports["talk_page"],
+        reports["attribution"],
+        reports["educational"],
+        reports["page_move"],
+        reports["edit_filter"],
+        target_lang,
+        st.session_state.human_proofreading_confirmed,
+    )
+
+    counts = Counter(item["status"] for item in checklist)
+    _summary_cards(
+        [
+            ("Passed", str(counts.get("passed", 0)), "Automated checks"),
+            ("Needs review", str(counts.get("needs_review", 0)), "Fix or verify"),
+            ("Missing", str(counts.get("missing", 0)), "Must address"),
+            ("Manual", str(counts.get("manual", 0)), "Human confirmation"),
+        ]
+    )
+
+    st.markdown("##### Final publishing checklist")
+    for item in checklist:
+        _status_badge(
+            _phase4_status_level(item["status"]),
+            f"{item['item']} — {item['detail']}",
+        )
+
+    _status_badge(
+        "warning",
+        "Final publication remains a manual Wikipedia workflow. This tool does not publish, move pages, log in, or edit automatically.",
+    )
+
+
 def _tab_export() -> None:
     _section(
         "Export",
@@ -1137,13 +1561,14 @@ def _tab_about() -> None:
 **Workflow**
 1. Fetch source wikitext from Wikipedia.
 2. Generate a translation draft (placeholder in current version).
-3. Run template, reference, link, media, category, structure, and Korean style checks.
-4. Export and complete human proofreading before publishing.
+3. Run template, reference, link, media, category, structure, publishing, and Korean style checks.
+4. Prepare attribution, talk page templates, and final review before publishing manually.
 
 **Policy reminders**
 - This is an editorial assistant, not an auto-publishing bot.
 - Do not submit unreviewed machine translations.
 - All new factual content must cite reliable sources.
+- Do not try to bypass edit filters; fix underlying policy issues.
 - Automated checks cannot replace human proofreading.
 
 **Modules**
@@ -1166,6 +1591,7 @@ def main() -> None:
         st.stop()
 
     source_lang, target_lang, title = validated
+    target_title = _effective_target_title(title)
 
     _render_header()
     _render_intro_panel()
@@ -1179,6 +1605,11 @@ def main() -> None:
         tab_link,
         tab_image_category,
         tab_structure,
+        tab_publishing,
+        tab_talk_page,
+        tab_attribution,
+        tab_edit_filter,
+        tab_final_review,
         tab_export,
         tab_about,
     ) = st.tabs(
@@ -1191,6 +1622,11 @@ def main() -> None:
             "Link Check",
             "Image & Category Check",
             "Structure Check",
+            "Publishing Checklist",
+            "Talk Page Templates",
+            "Attribution",
+            "Edit Filter Risk",
+            "Final Review",
             "Export",
             "About",
         ]
@@ -1219,6 +1655,21 @@ def main() -> None:
 
     with tab_structure:
         _tab_structure_check(source_lang, target_lang)
+
+    with tab_publishing:
+        _tab_publishing_checklist(source_lang, target_lang, title, target_title)
+
+    with tab_talk_page:
+        _tab_talk_page_templates(source_lang, target_lang, title, target_title)
+
+    with tab_attribution:
+        _tab_attribution(source_lang, target_lang, title, target_title)
+
+    with tab_edit_filter:
+        _tab_edit_filter_risk(source_lang, target_lang, title, target_title)
+
+    with tab_final_review:
+        _tab_final_review(source_lang, target_lang, title, target_title)
 
     with tab_export:
         _tab_export()

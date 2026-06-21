@@ -102,6 +102,54 @@ REFERENCE_SECTION_TITLES = {
     "zh": ("参考资料", "參考資料"),
 }
 
+LANGUAGE_LABELS = {
+    "en": {"en": "English", "ko": "영어", "zh": "英文"},
+    "ko": {"en": "Korean", "ko": "한국어", "zh": "韩文"},
+    "zh": {"en": "Chinese", "ko": "중국어", "zh": "中文"},
+    "ja": {"en": "Japanese", "ko": "일본어", "zh": "日文"},
+}
+
+TALK_PAGE_TEMPLATE_CONFIG = {
+    "ko": {
+        "translated": "ko:틀:번역된_문서",
+        "educational": "ko:틀:과제 문서",
+        "translated_markup": "{{{{번역된 문서|{source_lang}|{source_title}|판={revision_id}}}}}",
+        "educational_markup": "{{{{과제 문서}}}}",
+    },
+    "zh": {
+        "translated": "zh:Template:Translated page",
+        "educational": "zh:Template:Educational assignment",
+        "translated_markup": "{{{{Translated page|{source_lang}|{source_title}|version={revision_id}}}}}",
+        "educational_markup": "{{{{Educational assignment}}}}",
+    },
+    "en": {
+        "translated": "Template:Translated page",
+        "educational": "{{Educational assignment}}",
+        "translated_markup": "{{{{Translated page|{source_lang}|{source_title}|version={revision_id}}}}}",
+        "educational_markup": "{{{{Educational assignment}}}}",
+    },
+}
+
+PROMOTIONAL_TERMS = (
+    "best",
+    "leading",
+    "world-class",
+    "revolutionary",
+    "innovative solution",
+    "최고",
+    "혁신적",
+    "领先",
+    "最佳",
+)
+
+SUSPICIOUS_URL_PATTERNS = (
+    "bit.ly",
+    "tinyurl.com",
+    "t.co/",
+    "goo.gl",
+    "adf.ly",
+)
+
 METADATA_PATTERNS: dict[str, re.Pattern[str]] = {
     "url": re.compile(r"\b(?:url|website)\s*=\s*([^\|\}\n]+)", re.IGNORECASE),
     "doi": re.compile(r"\bdoi\s*=\s*([^\|\}\n]+)", re.IGNORECASE),
@@ -800,3 +848,457 @@ def check_wiki_structure(
             "Do not publish directly from this tool; use your Wikipedia sandbox and review checklist.",
         ],
     }
+
+
+def _language_label(lang: str, output_lang: str) -> str:
+    normalized = lang.strip().lower()
+    return LANGUAGE_LABELS.get(normalized, {}).get(output_lang, normalized)
+
+
+def _talk_page_config(target_lang: str) -> dict[str, str]:
+    return TALK_PAGE_TEMPLATE_CONFIG.get(
+        target_lang.strip().lower(),
+        TALK_PAGE_TEMPLATE_CONFIG["en"],
+    )
+
+
+def generate_talk_page_templates(
+    source_lang: str,
+    source_title: str,
+    target_lang: str,
+    target_title: str,
+    revision_id: str = "",
+) -> dict[str, Any]:
+    """Generate copy-ready talk page template suggestions."""
+    config = _talk_page_config(target_lang)
+    revision_value = revision_id.strip() or "REPLACE_WITH_SOURCE_REVISION_ID"
+    translated_markup = config["translated_markup"].format(
+        source_lang=source_lang,
+        source_title=source_title,
+        target_lang=target_lang,
+        target_title=target_title,
+        revision_id=revision_value,
+    )
+    educational_markup = config["educational_markup"].format(
+        source_lang=source_lang,
+        source_title=source_title,
+        target_lang=target_lang,
+        target_title=target_title,
+        revision_id=revision_value,
+    )
+
+    copy_ready = "\n".join(
+        [
+            "<!-- Place these templates on the talk page, not in the article body. -->",
+            translated_markup,
+            educational_markup,
+        ]
+    )
+
+    return {
+        "talk_page_templates": [config["translated"], config["educational"]],
+        "copy_ready_talk_page_wikitext": copy_ready,
+        "explanation": (
+            "Use these templates to disclose that the article was translated and, "
+            "if applicable, created or edited as part of an educational assignment."
+        ),
+        "where_to_place": "Talk page",
+        "source_language": source_lang,
+        "source_title": source_title,
+        "target_language": target_lang,
+        "target_title": target_title,
+    }
+
+
+def generate_translation_attribution(
+    source_lang: str,
+    source_title: str,
+    target_lang: str,
+    target_title: str,
+) -> dict[str, Any]:
+    """Generate edit-summary attribution guidance for translated articles."""
+    normalized_target = target_lang.strip().lower()
+    source_label_en = _language_label(source_lang, "en")
+    source_label_ko = _language_label(source_lang, "ko")
+    source_label_zh = _language_label(source_lang, "zh")
+
+    if normalized_target == "ko":
+        edit_summary = (
+            f'한국어 번역: {source_label_ko} 위키백과 "{source_title}" 문서에서 번역함.'
+        )
+    elif normalized_target == "zh":
+        edit_summary = (
+            f"翻译自{source_label_zh}维基百科条目“{source_title}”，"
+            "版权归其贡献者所有，见原文历史记录。"
+        )
+    else:
+        edit_summary = (
+            f'Translated from {source_label_en} Wikipedia article "{source_title}"; '
+            "see its history for attribution."
+        )
+
+    return {
+        "recommended_edit_summary": edit_summary,
+        "attribution_warning": (
+            "Wikipedia translations must preserve attribution. Include a clear edit "
+            "summary and consider adding the translated-page template on the talk page."
+        ),
+        "talk_page_translated_template": _talk_page_config(target_lang)["translated"],
+        "reminder_to_check_original_history": (
+            f'Before publishing "{target_title}", open the source article history for '
+            f'"{source_title}" and confirm the translated revision.'
+        ),
+    }
+
+
+def generate_educational_assignment_helper(target_lang: str) -> dict[str, str]:
+    """Generate educational-assignment template guidance."""
+    config = _talk_page_config(target_lang)
+    return {
+        "template_name": config["educational"],
+        "where_to_place": "Talk page",
+        "copy_ready_template": config["educational_markup"].format(
+            source_lang="",
+            source_title="",
+            target_lang=target_lang,
+            target_title="",
+            revision_id="",
+        ),
+        "warning": (
+            "Educational assignment templates belong on the talk page, not in the "
+            "article page body."
+        ),
+    }
+
+
+def build_page_move_checklist(
+    translated_wikitext: str,
+    target_lang: str,
+    target_title: str,
+    page_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a manual checklist for moving or publishing a draft to mainspace."""
+    normalized_title = target_title.strip()
+    lower_title = normalized_title.lower()
+    namespace = "mainspace"
+    if lower_title.startswith("user:") or lower_title.startswith("사용자:"):
+        namespace = "user"
+    elif lower_title.startswith("draft:") or lower_title.startswith("초안:"):
+        namespace = "draft"
+
+    references_section = check_references_section(translated_wikitext, target_lang)
+    categories = extract_categories(translated_wikitext)
+    status = page_status or {}
+    title_exists = bool(status.get("exists"))
+
+    checklist = [
+        {
+            "item": "Confirm draft namespace",
+            "status": "needs_review" if namespace in {"user", "draft"} else "manual",
+            "detail": (
+                f"Current title appears to be in {namespace} namespace. "
+                "If this is a new article, move the page to mainspace instead of copy-pasting."
+            )
+            if namespace in {"user", "draft"}
+            else "Target title appears to be mainspace; confirm manually.",
+        },
+        {
+            "item": "Preserve edit history",
+            "status": "manual",
+            "detail": "Move drafts to mainspace when appropriate to preserve edit history.",
+        },
+        {
+            "item": "Check target title availability",
+            "status": "needs_review" if title_exists else "manual",
+            "detail": (
+                "Target title may already exist; review existing page and history before publishing."
+                if title_exists
+                else "Target title was not found by the page-status check; confirm manually before publishing."
+            ),
+        },
+        {
+            "item": "Redirect handling",
+            "status": "manual",
+            "detail": "Decide whether redirects are needed after moving or renaming the draft.",
+        },
+        {
+            "item": "Naming convention",
+            "status": "manual",
+            "detail": "Confirm the title follows target-language Wikipedia naming conventions.",
+        },
+        {
+            "item": "References section",
+            "status": "passed" if references_section["references_section_present"] else "missing",
+            "detail": (
+                "Expected references section found."
+                if references_section["references_section_present"]
+                else references_section["missing_references_section_warning"]
+            ),
+        },
+        {
+            "item": "Categories",
+            "status": "passed" if categories else "missing",
+            "detail": (
+                f"{len(categories)} categor(ies) detected. Confirm they are blue-linked."
+                if categories
+                else "No categories detected. Add appropriate target-wiki categories."
+            ),
+        },
+        {
+            "item": "Interlanguage links",
+            "status": "manual",
+            "detail": "Confirm interlanguage links / Wikidata sitelinks after publication if applicable.",
+        },
+        {
+            "item": "Post-publication monitoring",
+            "status": "manual",
+            "detail": "Monitor article history and talk page after publishing.",
+        },
+    ]
+
+    return {
+        "current_namespace_guess": namespace,
+        "target_title_exists": title_exists,
+        "references_section_present": references_section["references_section_present"],
+        "categories_count": len(categories),
+        "checklist": checklist,
+        "reminder": (
+            "This tool does not move pages. Use Wikipedia's normal page move workflow "
+            "only after human review."
+        ),
+    }
+
+
+def _count_external_links(text: str) -> int:
+    return len(re.findall(r"https?://[^\s\]\|}<>]+", text, flags=re.IGNORECASE))
+
+
+def check_edit_filter_risk(
+    source_wikitext: str,
+    translated_wikitext: str,
+    target_lang: str,
+    reference_report: dict[str, Any] | None = None,
+    template_report: dict[str, Any] | None = None,
+    attribution_prepared: bool = False,
+    human_proofreading_confirmed: bool = False,
+) -> dict[str, Any]:
+    """
+    Estimate edit-filter / moderation risk and suggest compliance fixes.
+
+    This never suggests bypassing filters; it only recommends safer, policy-compliant edits.
+    """
+    reference_report = reference_report or check_references(source_wikitext, translated_wikitext)
+    template_report = template_report or check_templates(source_wikitext, translated_wikitext)
+    korean_style_findings = check_korean_encyclopedic_style(translated_wikitext)
+
+    risk_reasons: list[str] = []
+    suggested_fixes: list[str] = []
+
+    source_plain_len = len(re.sub(r"<[^>]+>|\{\{.*?\}\}", "", source_wikitext, flags=re.DOTALL))
+    translated_plain_len = len(
+        re.sub(r"<[^>]+>|\{\{.*?\}\}", "", translated_wikitext, flags=re.DOTALL)
+    )
+    source_refs = reference_report["source_stats"]["ref_tag_count"]
+    translated_refs = reference_report["translated_stats"]["ref_tag_count"]
+    external_links = _count_external_links(translated_wikitext)
+    citation_templates = reference_report["translated_stats"]["citation_template_count"]
+    suspicious_urls = [
+        pattern
+        for pattern in SUSPICIOUS_URL_PATTERNS
+        if pattern in translated_wikitext.lower()
+    ]
+    promo_terms = [
+        term for term in PROMOTIONAL_TERMS if term.lower() in translated_wikitext.lower()
+    ]
+
+    if translated_plain_len > source_plain_len * 1.25 and translated_refs <= source_refs:
+        risk_reasons.append("Large amount of possible new content without more references.")
+        suggested_fixes.append("Remove unsourced additions or add reliable citations.")
+
+    if external_links >= 20:
+        risk_reasons.append(f"Large number of external links detected ({external_links}).")
+        suggested_fixes.append("Keep only necessary, reliable external links and references.")
+
+    if "[TRANSLATION PLACEHOLDER]" in translated_wikitext:
+        risk_reasons.append("Placeholder / machine-translation marker still present.")
+        suggested_fixes.append("Complete human translation and remove placeholder markers.")
+
+    if korean_style_findings and target_lang.strip().lower() == "ko":
+        risk_reasons.append("Korean draft still contains polite-style endings.")
+        suggested_fixes.append("Revise Korean prose into encyclopedic style after proofreading.")
+
+    if promo_terms:
+        risk_reasons.append("Possible promotional or advertising wording detected.")
+        suggested_fixes.append("Rewrite promotional language into neutral encyclopedic prose.")
+
+    if suspicious_urls:
+        risk_reasons.append("Suspicious or shortened URL pattern detected.")
+        suggested_fixes.append("Replace questionable URLs with reliable, transparent sources.")
+
+    if template_report["missing_templates"] or template_report["extra_templates"]:
+        risk_reasons.append("Templates were added, removed, or disrupted.")
+        suggested_fixes.append("Review template diffs and restore required templates.")
+
+    if translated_refs < max(1, source_refs // 2):
+        risk_reasons.append("Reference count appears too low compared with source.")
+        suggested_fixes.append("Preserve source references and add citations for any new facts.")
+
+    if not attribution_prepared:
+        risk_reasons.append("No translation attribution / edit summary prepared.")
+        suggested_fixes.append("Prepare a clear translation attribution edit summary.")
+
+    if not human_proofreading_confirmed:
+        risk_reasons.append("Human proofreading has not been confirmed.")
+        suggested_fixes.append("Proofread in sandbox before attempting publication.")
+
+    if len(risk_reasons) >= 6:
+        risk_level = "high"
+    elif len(risk_reasons) >= 3:
+        risk_level = "medium"
+    else:
+        risk_level = "low"
+
+    if risk_reasons:
+        suggested_fixes.extend(
+            [
+                "Save and review the draft in a sandbox first.",
+                "Split large, complex changes into easier-to-review edits when appropriate.",
+                "Do not attempt to bypass edit filters; fix the underlying policy issues.",
+            ]
+        )
+
+    return {
+        "risk_level": risk_level,
+        "risk_reasons": risk_reasons,
+        "suggested_fixes": list(dict.fromkeys(suggested_fixes)),
+        "signals": {
+            "external_links_count": external_links,
+            "suspicious_url_patterns": suspicious_urls,
+            "promotional_terms": promo_terms,
+            "korean_style_findings_count": len(korean_style_findings),
+            "translated_ref_count": translated_refs,
+            "translated_citation_template_count": citation_templates,
+        },
+    }
+
+
+def build_final_publishing_checklist(
+    translated_wikitext: str,
+    template_report: dict[str, Any],
+    reference_report: dict[str, Any],
+    link_report: dict[str, Any],
+    image_category_report: dict[str, Any],
+    structure_report: dict[str, Any],
+    talk_page_report: dict[str, Any],
+    attribution_report: dict[str, Any],
+    educational_report: dict[str, Any],
+    page_move_report: dict[str, Any],
+    edit_filter_report: dict[str, Any],
+    target_lang: str,
+    human_proofreading_confirmed: bool = False,
+) -> list[dict[str, str]]:
+    """Combine prior checks into a final manual publishing checklist."""
+    korean_findings = check_korean_encyclopedic_style(translated_wikitext)
+    link_summary = link_report["summary"]
+    references_section = structure_report["references_section"]
+
+    return [
+        {
+            "item": "Translation complete",
+            "status": "missing" if "[TRANSLATION PLACEHOLDER]" in translated_wikitext else "manual",
+            "detail": "Remove placeholder text and complete human-reviewed translation.",
+        },
+        {
+            "item": "References preserved",
+            "status": "passed" if not reference_report["issues"] else "needs_review",
+            "detail": reference_report["summary"],
+        },
+        {
+            "item": "No unsourced AI content",
+            "status": "manual",
+            "detail": "Manually confirm all added factual claims have reliable sources.",
+        },
+        {
+            "item": "Templates checked",
+            "status": "passed" if not template_report["warnings"] else "needs_review",
+            "detail": f"{len(template_report['warnings'])} template warning(s).",
+        },
+        {
+            "item": "Infobox checked",
+            "status": "passed"
+            if (
+                not template_report["infobox_present_in_source"]
+                or template_report["infobox_present_in_translation"]
+            )
+            else "missing",
+            "detail": "Confirm infobox is preserved and localized when needed.",
+        },
+        {
+            "item": "Korean encyclopedic style checked",
+            "status": "passed"
+            if target_lang.strip().lower() == "ko" and not korean_findings
+            else "manual",
+            "detail": (
+                f"{len(korean_findings)} polite-style finding(s)."
+                if target_lang.strip().lower() == "ko"
+                else "Manual check required for target-language encyclopedic style."
+            ),
+        },
+        {
+            "item": "Blue links checked",
+            "status": "passed" if link_summary["blue_links"] > 0 else "manual",
+            "detail": f"{link_summary['blue_links']} blue link candidate(s).",
+        },
+        {
+            "item": "Red links reviewed",
+            "status": "needs_review" if link_summary["red_link_risks"] else "passed",
+            "detail": f"{link_summary['red_link_risks']} red-link risk(s).",
+        },
+        {
+            "item": "Images copyright reviewed",
+            "status": "manual",
+            "detail": f"{len(image_category_report['image_files_detected'])} image file(s) detected.",
+        },
+        {
+            "item": "Categories added",
+            "status": "passed" if image_category_report["translated_categories"] else "missing",
+            "detail": f"{len(image_category_report['translated_categories'])} draft categor(ies).",
+        },
+        {
+            "item": "References section exists",
+            "status": "passed" if references_section["references_section_present"] else "missing",
+            "detail": ", ".join(references_section["expected_headings"]),
+        },
+        {
+            "item": "Talk page templates prepared",
+            "status": "passed" if talk_page_report["copy_ready_talk_page_wikitext"] else "missing",
+            "detail": "Place templates on talk page, not article page.",
+        },
+        {
+            "item": "Translation attribution prepared",
+            "status": "passed" if attribution_report["recommended_edit_summary"] else "missing",
+            "detail": "Use the recommended edit summary or equivalent attribution.",
+        },
+        {
+            "item": "Educational assignment prepared",
+            "status": "manual" if educational_report["copy_ready_template"] else "missing",
+            "detail": "Use only if the article is part of a course assignment.",
+        },
+        {
+            "item": "Page move checklist reviewed",
+            "status": "needs_review"
+            if any(item["status"] in {"missing", "needs_review"} for item in page_move_report["checklist"])
+            else "manual",
+            "detail": "Move to mainspace manually when appropriate; do not copy-paste.",
+        },
+        {
+            "item": "Edit filter risk reviewed",
+            "status": "needs_review" if edit_filter_report["risk_level"] != "low" else "passed",
+            "detail": f"Risk level: {edit_filter_report['risk_level']}.",
+        },
+        {
+            "item": "Human proofreading completed",
+            "status": "passed" if human_proofreading_confirmed else "manual",
+            "detail": "Final publication requires human proofreading.",
+        },
+    ]
