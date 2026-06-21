@@ -36,6 +36,14 @@ A semi-automatic Wikipedia translation helper. This tool fetches article wikitex
 - **Edit Filter Risk Report** — flag policy risks and suggest compliant fixes
 - **Final Publishing Checklist** — combine all prior checks into a final human review list
 
+### Phase 5 (LLM translation integration)
+
+- **Placeholder mode** — default mode, works without an API key for safe local testing
+- **OpenAI mode** — generates AI-assisted translation drafts with the official OpenAI Python SDK
+- **Wikitext protection** — protects refs, citation templates, infoboxes, URLs, DOIs, ISBNs, wikilinks, files, categories, and headings before sending chunks to an LLM
+- **Chunked translation** — translates section/paragraph chunks instead of sending very long articles at once
+- **Translation warnings** — reports provider, chunk count, API-key warnings, skipped template-heavy chunks, and failed chunks
+
 These checks are **assistive only**. They cannot replace human proofreading. Do not publish AI translations without thorough manual review. All new factual content on Wikipedia must cite reliable sources. Image copyright must always be confirmed manually. Do not try to bypass edit filters; fix the underlying policy or content issue instead.
 
 ## Requirements
@@ -60,6 +68,30 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Translation Provider Setup
+
+### Placeholder mode
+
+Placeholder mode is the default and requires no API key. It keeps the app usable on macOS, Windows, and Streamlit Community Cloud even when no LLM credentials are configured.
+
+### OpenAI mode
+
+OpenAI mode requires an API key. Do **not** put API keys in code, commit them to GitHub, or paste them into README files.
+
+For local development, create `.streamlit/secrets.toml`:
+
+```toml
+OPENAI_API_KEY = "your_api_key_here"
+```
+
+Alternatively, set an environment variable:
+
+```bash
+export OPENAI_API_KEY="your_api_key_here"
+```
+
+`.streamlit/secrets.toml` and `.env` are ignored by `.gitignore`.
+
 ## Run locally
 
 ```bash
@@ -68,12 +100,16 @@ streamlit run app.py
 
 Open the URL shown in the terminal (usually `http://localhost:8501`).
 
+## Deploy to Streamlit Community Cloud
+
+Use `app.py` as the app entry point. No Wikipedia login or edit token is required. Placeholder mode works without secrets. For OpenAI mode, configure `OPENAI_API_KEY` in the app's Streamlit Cloud secrets.
+
 ### UI (editorial review style)
 
 The interface uses a light, Wikipedia-inspired editorial layout:
 
 - White / light-gray workspace with Wikipedia blue accents
-- Sidebar project controls (languages, title, fetch, generate draft)
+- Sidebar project controls (languages, title, provider, fetch, generate AI draft)
 - Main tabs for source review, draft review, compliance checks, publishing checks, export, and about
 - Status labels: Passed, Warning, Needs review, Info
 
@@ -81,22 +117,23 @@ The interface uses a light, Wikipedia-inspired editorial layout:
 
 1. In the **sidebar**, set **Source language** (e.g. `en`), **Target language** (e.g. `ko`), and **Article title** (e.g. `Alan Turing`).
 2. Click **Fetch article** in the sidebar to load wikitext.
-3. Click **Generate draft** to create a placeholder translation draft.
-4. **Article Source** — preview fetched wikitext.
-5. **Translation Draft** — preview the draft.
-6. **Template Check** — verify Infobox, citation templates, and other templates are preserved.
-7. **Reference Check** — verify refs, named refs, URLs, DOIs, ISBNs, and other metadata.
-8. **Korean Style Check** — review suggestions for encyclopedic Korean style (when targeting `ko`).
-9. **Link Check** — review blue-link status, red-link risk, and temporary link template suggestions.
-10. **Image & Category Check** — review image files, copyright cautions, and target-wiki categories.
-11. **Structure Check** — verify references section status and disambiguation warnings.
-12. **Publishing Checklist** — review mainspace move, title, redirects, categories, references, and post-publication monitoring.
-13. **Talk Page Templates** — prepare talk page templates for translated pages and educational assignments.
-14. **Attribution** — prepare a translation-source edit summary.
-15. **Edit Filter Risk** — review possible moderation risks and safe compliance fixes.
-16. **Final Review** — combine all checks into a final publication-readiness list.
-17. **Export** — copy or download the draft wikitext after manual review.
-18. **About** — workflow and policy reminders.
+3. Choose **Placeholder mode** or **OpenAI mode** as the translation provider.
+4. Click **Generate AI Draft** to create a translation draft.
+5. **Article Source** — preview fetched wikitext.
+6. **Translation Draft** — preview provider, chunk count, warnings, and generated wikitext.
+7. **Template Check** — verify Infobox, citation templates, and other templates are preserved.
+8. **Reference Check** — verify refs, named refs, URLs, DOIs, ISBNs, and other metadata.
+9. **Korean Style Check** — review suggestions for encyclopedic Korean style (when targeting `ko`).
+10. **Link Check** — review blue-link status, red-link risk, and temporary link template suggestions.
+11. **Image & Category Check** — review image files, copyright cautions, and target-wiki categories.
+12. **Structure Check** — verify references section status and disambiguation warnings.
+13. **Publishing Checklist** — review mainspace move, title, redirects, categories, references, and post-publication monitoring.
+14. **Talk Page Templates** — prepare talk page templates for translated pages and educational assignments.
+15. **Attribution** — prepare a translation-source edit summary.
+16. **Edit Filter Risk** — review possible moderation risks and safe compliance fixes.
+17. **Final Review** — combine all checks into a final publication-readiness list.
+18. **Export** — copy or download the draft wikitext after manual review.
+19. **About** — workflow and policy reminders.
 
 ## Quality check details
 
@@ -219,11 +256,29 @@ It does **not** provide ways to bypass edit filters.
 
 Combines all checks into a final publication-readiness list covering translation completion, references, unsourced AI content, templates, infobox, Korean style, blue/red links, image copyright, categories, references section, talk page templates, attribution, educational assignment, page move review, edit filter risk, and human proofreading.
 
+### LLM Translation Drafts
+
+OpenAI mode asks the model to translate Wikipedia article text while preserving encyclopedic tone and protected wikitext tokens. The prompt explicitly says not to add new facts, not to remove citations, not to modify protected tokens, and not to return explanations.
+
+The protection layer is not perfect. After generating an AI draft, always run:
+
+- Template Check
+- Reference Check
+- Link Check
+- Image & Category Check
+- Structure Check
+- Final Review
+
+AI output must be reviewed manually before any publication.
+
 ## Important disclaimer
 
 - **Do not automatically publish AI or machine translations to Wikipedia.**
 - All output must be reviewed and edited by a human translator before any submission.
 - **All new factual statements must have reliable references.**
+- **Do not add facts that were not present in the source unless you add reliable sources.**
+- **Do not invent references or citations.**
+- **Do not commit API keys.**
 - **Image copyright and fair-use status must be checked manually.**
 - **Do not attempt to bypass edit filters.**
 - **Human proofreading is required before publication.**
@@ -236,7 +291,7 @@ Combines all checks into a final publication-readiness list covering translation
 |------|---------|
 | `app.py` | Streamlit UI |
 | `wiki_api.py` | MediaWiki API client (fetch wikitext, page status, language links) |
-| `translator.py` | Translation logic (MVP placeholder) |
+| `translator.py` | Placeholder/OpenAI translation logic with wikitext token protection |
 | `validator.py` | Input validation + template/reference/link/media/category/structure/publishing/Korean style checkers |
 | `requirements.txt` | Python dependencies |
 

@@ -6,7 +6,12 @@ from collections import Counter
 
 import streamlit as st
 
-from translator import PLACEHOLDER_MARKER, translate_text
+from translator import (
+    DEFAULT_PROVIDER,
+    PLACEHOLDER_MARKER,
+    is_openai_configured,
+    translate_wikitext_sections,
+)
 from validator import (
     build_final_publishing_checklist,
     build_page_move_checklist,
@@ -38,7 +43,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-PHASE_LABEL = "Phase 4 — Publishing Compliance & Final Review"
+PHASE_LABEL = "Phase 5 — LLM Translation Integration"
+LANGUAGE_HELP = {
+    "ko": "Korean",
+    "zh": "Chinese",
+    "ja": "Japanese",
+    "en": "English",
+}
 
 DISCLAIMER = (
     "This tool is a translation assistant only. Do not publish machine-generated "
@@ -347,7 +358,7 @@ def _render_header() -> None:
         <div class="wiki-doc-header">
             <h1>Wikipedia Translation Assistant</h1>
             <p class="wiki-subtitle">
-                Draft translation, compliance checks, attribution helpers, and final publishing review
+                AI-assisted draft translation, compliance checks, attribution helpers, and final review
             </p>
             <span class="wiki-phase-badge">{PHASE_LABEL}</span>
         </div>
@@ -365,7 +376,7 @@ def _render_intro_panel() -> None:
                 <div class="wiki-intro-item">
                     <strong>What this tool does</strong>
                     <span>
-                        Fetches Wikipedia wikitext, prepares a translation draft, and runs
+                        Fetches Wikipedia wikitext, generates AI-assisted translation drafts, and runs
                         template, reference, link, media, category, publishing compliance,
                         and final review checks.
                     </span>
@@ -398,6 +409,9 @@ def _init_session_state() -> None:
         "article_title": "Alan Turing",
         "target_title": "",
         "source_revision_id": "",
+        "translation_provider": DEFAULT_PROVIDER,
+        "translation_chunk_count": 0,
+        "translation_warnings": [],
         "attribution_confirmed": False,
         "human_proofreading_confirmed": False,
         "source_wikitext": "",
@@ -445,6 +459,9 @@ def _render_sidebar() -> tuple[str, str, str] | None:
         value=st.session_state.target_lang,
         help='Target language code, e.g. "ko", "zh", "ja".',
     )
+    st.sidebar.caption(
+        "Language guide: ko = Korean, zh = Chinese, ja = Japanese, en = English"
+    )
     st.session_state.article_title = st.sidebar.text_input(
         "Article title",
         value=st.session_state.article_title,
@@ -474,6 +491,22 @@ def _render_sidebar() -> tuple[str, str, str] | None:
     source_lang, target_lang, title = validated
 
     st.sidebar.markdown("---")
+    st.sidebar.markdown("**Translation provider**")
+    provider_label = st.sidebar.selectbox(
+        "Provider",
+        options=["Placeholder mode", "OpenAI mode"],
+        index=0 if st.session_state.translation_provider == "placeholder" else 1,
+        help="Placeholder mode works without an API key. OpenAI mode requires OPENAI_API_KEY.",
+    )
+    st.session_state.translation_provider = (
+        "openai" if provider_label == "OpenAI mode" else "placeholder"
+    )
+    if st.session_state.translation_provider == "openai" and not is_openai_configured():
+        st.sidebar.warning(
+            "API key not configured. Please use placeholder mode or set OPENAI_API_KEY in Streamlit secrets."
+        )
+
+    st.sidebar.markdown("---")
     st.sidebar.markdown("**Workflow actions**")
 
     if st.sidebar.button("Fetch article", type="primary", use_container_width=True):
@@ -482,6 +515,8 @@ def _render_sidebar() -> tuple[str, str, str] | None:
                 wikitext = fetch_wikitext(source_lang, title)
                 st.session_state.source_wikitext = wikitext
                 st.session_state.draft_wikitext = ""
+                st.session_state.translation_chunk_count = 0
+                st.session_state.translation_warnings = []
                 st.session_state.fetch_error = ""
                 st.session_state.last_fetched_title = title
                 st.sidebar.success(f'Loaded "{title}".')
@@ -494,17 +529,27 @@ def _render_sidebar() -> tuple[str, str, str] | None:
                 st.session_state.fetch_error = str(exc)
                 st.sidebar.error(str(exc))
 
-    if st.sidebar.button("Generate draft", use_container_width=True):
+    if st.sidebar.button("Generate AI Draft", use_container_width=True):
         if not st.session_state.source_wikitext:
             st.sidebar.warning("Fetch an article before generating a draft.")
-        else:
-            draft = translate_text(
-                st.session_state.source_wikitext,
-                source_lang,
-                target_lang,
+        elif st.session_state.translation_provider == "openai" and not is_openai_configured():
+            st.sidebar.warning(
+                "API key not configured. Please use placeholder mode or set OPENAI_API_KEY in Streamlit secrets."
             )
-            st.session_state.draft_wikitext = draft
-            st.sidebar.success("Draft generated (placeholder).")
+        else:
+            with st.spinner("Generating translation draft…"):
+                result = translate_wikitext_sections(
+                    st.session_state.source_wikitext,
+                    source_lang,
+                    target_lang,
+                    provider=st.session_state.translation_provider,
+                )
+            st.session_state.draft_wikitext = result["translated_wikitext"]
+            st.session_state.translation_chunk_count = result["chunk_count"]
+            st.session_state.translation_warnings = result["warnings"]
+            st.sidebar.success(
+                f"Draft generated using {result['provider']} ({result['chunk_count']} chunk(s))."
+            )
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("**Session status**")
@@ -521,6 +566,7 @@ def _render_sidebar() -> tuple[str, str, str] | None:
         if st.session_state.draft_wikitext
         else "Draft ready: **No**"
     )
+    st.sidebar.write(f"Provider: **{st.session_state.translation_provider}**")
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("**Manual confirmations**")
@@ -715,22 +761,35 @@ def _tab_article_source(source_lang: str, target_lang: str, title: str) -> None:
 
 
 def _tab_translation_draft(source_lang: str, target_lang: str) -> None:
+    target_label = LANGUAGE_HELP.get(target_lang, target_lang)
     _section(
         "Translation Draft",
-        f"Placeholder draft for {source_lang} → {target_lang}. Replace with human-reviewed text.",
+        f"AI-assisted draft for {source_lang} → {target_lang} ({target_label}). Replace with human-reviewed text.",
     )
 
     if not _need_source():
         return
 
     st.markdown(
-        f'<p class="wiki-muted">Draft mode: placeholder marker '
-        f"<code>{PLACEHOLDER_MARKER}</code></p>",
+        f'<p class="wiki-muted">Provider: <strong>{st.session_state.translation_provider}</strong> · '
+        f"Target language: <strong>{target_label}</strong> · "
+        f"Chunks: <strong>{st.session_state.translation_chunk_count}</strong></p>",
         unsafe_allow_html=True,
     )
+    if st.session_state.translation_provider == "placeholder":
+        st.caption(f"Placeholder marker: `{PLACEHOLDER_MARKER}`")
+    if st.session_state.translation_provider == "openai" and not is_openai_configured():
+        _status_badge(
+            "warning",
+            "API key not configured. Please use placeholder mode or set OPENAI_API_KEY in Streamlit secrets.",
+        )
 
     if st.session_state.draft_wikitext:
         _status_badge("pass", "Draft available for review and compliance checks.")
+        if st.session_state.translation_warnings:
+            st.markdown("##### Translation warnings")
+            for warning in st.session_state.translation_warnings:
+                _status_badge("warning", warning)
         st.markdown("##### Draft wikitext preview")
         st.text_area(
             "Draft wikitext",
@@ -742,7 +801,7 @@ def _tab_translation_draft(source_lang: str, target_lang: str) -> None:
     else:
         _status_badge(
             "info",
-            "No draft yet. Click **Generate draft** in the sidebar after fetching the source.",
+            "No draft yet. Click **Generate AI Draft** in the sidebar after fetching the source.",
         )
 
 
