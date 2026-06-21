@@ -1,20 +1,30 @@
 # Wikipedia Translation Assistant
 
-A semi-automatic Wikipedia translation helper. This MVP fetches article wikitext from Wikipedia, shows the source, generates a placeholder translation draft, and exports copy-ready wikitext for manual review.
+A semi-automatic Wikipedia translation helper. This tool fetches article wikitext from Wikipedia, shows the source, generates a placeholder translation draft, runs quality checks, and exports copy-ready wikitext for manual review.
 
 **This is a translation assistant, not an auto-publishing bot.** Do not publish machine-generated or unreviewed AI translations to Wikipedia.
 
-## What it does (MVP)
+## What it does
+
+### Phase 1 (MVP)
 
 - Fetch the latest wikitext source of a Wikipedia article via the MediaWiki API
 - Preview the original wikitext
 - Generate a draft translation (placeholder in v1)
 - Export copy-ready wikitext for human editing
 
+### Phase 2 (Quality checks)
+
+- **Template Check** — compare templates in source vs. translation draft
+- **Reference Check** — compare `<ref>` tags, named refs, and bibliographic metadata
+- **Korean Style Check** — flag formal/polite Korean (~입니다/~합니다) unsuitable for Korean Wikipedia's encyclopedic style (~이다/~한다)
+
+These checks are **assistive only**. They cannot replace human proofreading. Do not publish AI translations without thorough manual review. All new factual content on Wikipedia must cite reliable sources.
+
 ## Requirements
 
 - Python 3.10+
-- macOS or Windows (also suitable for [Streamlit Community Cloud](https://streamlit.io/cloud) deployment later)
+- macOS or Windows (also suitable for [Streamlit Community Cloud](https://streamlit.io/cloud) deployment)
 
 ## Installation
 
@@ -44,14 +54,45 @@ Open the URL shown in the terminal (usually `http://localhost:8501`).
 ### Usage
 
 1. Set **Source language** (e.g. `en`), **Target language** (e.g. `ko`, `zh`, `ja`), and **Article title** (e.g. `Alan Turing`) in the sidebar.
-2. **Fetch Article** — load wikitext from the source wiki. If the article does not exist, a clear error is shown.
-3. **Translate Draft** — generate a placeholder draft (marked with `[TRANSLATION PLACEHOLDER]`).
-4. **Export** — copy or download the draft wikitext for manual review and editing.
+2. **Fetch Article** — load wikitext from the source wiki.
+3. **Translate Draft** — generate a placeholder draft.
+4. **Template Check** — verify Infobox, citation templates, and other templates are preserved.
+5. **Reference Check** — verify refs, named refs, URLs, DOIs, ISBNs, and other metadata.
+6. **Korean Style Check** — review suggestions for encyclopedic Korean style (when targeting `ko`).
+7. **Export** — copy or download the draft wikitext after manual review.
+
+## Quality check details
+
+### Template Check
+
+Compares every `{{template}}` in source and translation wikitext using `mwparserfromhell`. Reports:
+
+- Templates present in source but missing in translation (and vice versa)
+- Whether an Infobox is preserved
+- Citation template counts (`cite web`, `cite news`, `cite journal`, `cite book`, etc.)
+- Warnings for templates that may need target-language localization (`authority control`, `DEFAULTSORT`, `short description`, `navbox`, …)
+
+The tool **does not delete or modify templates** — it only shows warnings and suggestions.
+
+### Reference Check
+
+Counts and compares:
+
+- `<ref>` tags, named refs, and self-closing refs
+- Citation templates
+- Bibliographic fields: URL, DOI, ISBN, pages, access-date, publisher, title
+
+Flags issues such as unclosed refs, missing named refs, fewer refs in translation, or possible unsourced new content. Reminds you that **unsourced AI content violates Wikipedia policy** and may lead to deletion or sanctions.
+
+### Korean Style Check
+
+Scans the translation draft for formal endings like `입니다`, `합니다`, `했습니다`, and suggests encyclopedic alternatives (`이다`, `한다`, `하였다`, …). Suggestions require human judgment — the tool never auto-replaces text.
 
 ## Important disclaimer
 
 - **Do not automatically publish AI or machine translations to Wikipedia.**
 - All output must be reviewed and edited by a human translator before any submission.
+- **All new factual statements must have reliable references.**
 - This tool does not connect to Wikipedia edit APIs and cannot publish on your behalf.
 
 ## Project structure
@@ -61,13 +102,11 @@ Open the URL shown in the terminal (usually `http://localhost:8501`).
 | `app.py` | Streamlit UI |
 | `wiki_api.py` | MediaWiki API client (fetch wikitext) |
 | `translator.py` | Translation logic (MVP placeholder) |
-| `validator.py` | Input validation |
+| `validator.py` | Input validation + template/reference/Korean style checkers |
 | `requirements.txt` | Python dependencies |
 
 ## Planned future features
 
-- References check
-- Template check
 - Link check (interwiki / red links)
 - Publishing checklist before submission
 
