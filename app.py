@@ -74,12 +74,53 @@ WIKI_STYLES = """
     }
 
     [data-testid="stSidebar"] {
-        background-color: #ffffff;
+        background-color: #f8f9fa;
         border-right: 1px solid #e5e7eb;
     }
 
     [data-testid="stSidebar"] .block-container {
         padding-top: 1.5rem;
+    }
+
+    [data-testid="stSidebar"],
+    [data-testid="stSidebar"] * {
+        color: #202122;
+    }
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] strong,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+        color: #202122 !important;
+        font-weight: 650;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+    [data-testid="stSidebar"] small,
+    [data-testid="stSidebar"] .stMarkdown p {
+        color: #54595d;
+    }
+
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] [data-baseweb="input"] input,
+    [data-testid="stSidebar"] [data-baseweb="select"] {
+        background-color: #ffffff !important;
+        color: #202122 !important;
+        border-color: #a2a9b1 !important;
+    }
+
+    [data-testid="stSidebar"] input::placeholder,
+    [data-testid="stSidebar"] textarea::placeholder {
+        color: #72777d !important;
+        opacity: 1;
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="select"] span,
+    [data-testid="stSidebar"] [data-baseweb="select"] div {
+        color: #202122 !important;
     }
 
     .wiki-doc-header {
@@ -280,7 +321,26 @@ WIKI_STYLES = """
     }
 
     div[data-testid="stTabs"] button[data-baseweb="tab"] {
+        color: #202122 !important;
         font-weight: 600;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p {
+        color: #202122 !important;
+        font-weight: 650;
+    }
+
+    div[data-testid="stTabs"] button[aria-selected="true"] {
+        color: #0645ad !important;
+        border-bottom-color: #3366cc !important;
+    }
+
+    div[data-testid="stTabs"] button[aria-selected="true"] p {
+        color: #0645ad !important;
+    }
+
+    div[data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+        background-color: #3366cc !important;
     }
 
     @media (max-width: 768px) {
