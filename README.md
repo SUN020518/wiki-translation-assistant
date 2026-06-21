@@ -19,7 +19,15 @@ A semi-automatic Wikipedia translation helper. This tool fetches article wikitex
 - **Reference Check** — compare `<ref>` tags, named refs, and bibliographic metadata
 - **Korean Style Check** — flag formal/polite Korean (~입니다/~합니다) unsuitable for Korean Wikipedia's encyclopedic style (~이다/~한다)
 
-These checks are **assistive only**. They cannot replace human proofreading. Do not publish AI translations without thorough manual review. All new factual content on Wikipedia must cite reliable sources.
+### Phase 3 (Link & wiki structure checks)
+
+- **Link Check** — extract internal links and estimate blue-link / red-link risk on the target-language Wikipedia
+- **Temporary link template suggestions** — suggest interlanguage temporary link templates such as `ko:틀:임시링크`, `zh:Template:Internal link helper`, or `Template:Interlanguage link`
+- **Disambiguation warning** — flag links that may point to disambiguation pages
+- **Image & Category Check** — list source image files, warn about image copyright / fair use, and compare categories
+- **References Section Check** — verify target-language references section headings such as `References`, `각주`, `参考资料`, or `參考資料`
+
+These checks are **assistive only**. They cannot replace human proofreading. Do not publish AI translations without thorough manual review. All new factual content on Wikipedia must cite reliable sources. Image copyright must always be confirmed manually.
 
 ## Requirements
 
@@ -57,7 +65,7 @@ The interface uses a light, Wikipedia-inspired editorial layout:
 
 - White / light-gray workspace with Wikipedia blue accents
 - Sidebar project controls (languages, title, fetch, generate draft)
-- Main tabs for source review, draft review, compliance checks, export, and about
+- Main tabs for source review, draft review, compliance checks, structure checks, export, and about
 - Status labels: Passed, Warning, Needs review, Info
 
 ### Usage
@@ -70,8 +78,11 @@ The interface uses a light, Wikipedia-inspired editorial layout:
 6. **Template Check** — verify Infobox, citation templates, and other templates are preserved.
 7. **Reference Check** — verify refs, named refs, URLs, DOIs, ISBNs, and other metadata.
 8. **Korean Style Check** — review suggestions for encyclopedic Korean style (when targeting `ko`).
-9. **Export** — copy or download the draft wikitext after manual review.
-10. **About** — workflow and policy reminders.
+9. **Link Check** — review blue-link status, red-link risk, and temporary link template suggestions.
+10. **Image & Category Check** — review image files, copyright cautions, and target-wiki categories.
+11. **Structure Check** — verify references section status and disambiguation warnings.
+12. **Export** — copy or download the draft wikitext after manual review.
+13. **About** — workflow and policy reminders.
 
 ## Quality check details
 
@@ -100,11 +111,49 @@ Flags issues such as unclosed refs, missing named refs, fewer refs in translatio
 
 Scans the translation draft for formal endings like `입니다`, `합니다`, `했습니다`, and suggests encyclopedic alternatives (`이다`, `한다`, `하였다`, …). Suggestions require human judgment — the tool never auto-replaces text.
 
+### Link Check
+
+Extracts regular internal article links such as `[[Alan Turing]]` or `[[University of Cambridge|Cambridge]]`, checks target-language Wikipedia page availability when possible, and reports:
+
+- Blue-link candidates
+- Red-link risk
+- Unknown links that require manual verification
+- Suggested temporary interlanguage link templates
+
+The tool does **not** automatically rewrite article links.
+
+### Disambiguation Warning
+
+Uses MediaWiki category data to flag pages that may be disambiguation pages. This is a warning only — editors must manually confirm the correct target page.
+
+### Image & Category Check
+
+Lists `File:` / `Image:` links and compares source vs. draft categories. It reminds editors that:
+
+- Wikimedia Commons free-license images are usually safer, but still require review
+- Fair use images may not be allowed on Korean Wikipedia
+- Chinese Wikipedia has its own non-free content rules
+- Images copied from the internet are not safe unless licensing is clearly compatible
+- Categories should be target-wiki categories and should ideally be blue-linked
+
+The tool does not download, upload, or license-check image files automatically.
+
+### References Section Check
+
+Checks whether the draft contains a target-language references section heading:
+
+- English: `References`
+- Korean: `각주`
+- Chinese: `参考资料` or `參考資料`
+
+If missing, the tool shows a warning before export.
+
 ## Important disclaimer
 
 - **Do not automatically publish AI or machine translations to Wikipedia.**
 - All output must be reviewed and edited by a human translator before any submission.
 - **All new factual statements must have reliable references.**
+- **Image copyright and fair-use status must be checked manually.**
 - This tool does not connect to Wikipedia edit APIs and cannot publish on your behalf.
 
 ## Project structure
@@ -112,15 +161,16 @@ Scans the translation draft for formal endings like `입니다`, `합니다`, `�
 | File | Purpose |
 |------|---------|
 | `app.py` | Streamlit UI |
-| `wiki_api.py` | MediaWiki API client (fetch wikitext) |
+| `wiki_api.py` | MediaWiki API client (fetch wikitext, page status, language links) |
 | `translator.py` | Translation logic (MVP placeholder) |
-| `validator.py` | Input validation + template/reference/Korean style checkers |
+| `validator.py` | Input validation + template/reference/link/media/category/structure/Korean style checkers |
 | `requirements.txt` | Python dependencies |
 
 ## Planned future features
 
-- Link check (interwiki / red links)
 - Publishing checklist before submission
+- Link localization improvements
+- More detailed target-wiki policy guidance
 
 ## License
 

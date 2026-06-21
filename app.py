@@ -6,13 +6,22 @@ import streamlit as st
 
 from translator import PLACEHOLDER_MARKER, translate_text
 from validator import (
+    check_images_and_categories,
     check_korean_encyclopedic_style,
+    check_links,
     check_references,
     check_templates,
+    check_wiki_structure,
     validate_lang_code,
     validate_title,
 )
-from wiki_api import WikiAPIError, WikiArticleNotFoundError, fetch_wikitext
+from wiki_api import (
+    WikiAPIError,
+    WikiArticleNotFoundError,
+    check_pages_status,
+    fetch_wikitext,
+    get_language_link_candidates,
+)
 
 st.set_page_config(
     page_title="Wikipedia Translation Assistant",
@@ -21,7 +30,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-PHASE_LABEL = "Phase 2 — Core Compliance Checks"
+PHASE_LABEL = "Phase 3 — Link & Wiki Structure Checks"
 
 DISCLAIMER = (
     "This tool is a translation assistant only. Do not publish machine-generated "
@@ -330,7 +339,7 @@ def _render_header() -> None:
         <div class="wiki-doc-header">
             <h1>Wikipedia Translation Assistant</h1>
             <p class="wiki-subtitle">
-                Draft translation, citation checks, template review, and publishing guidance
+                Draft translation, citation checks, link review, structure checks, and publishing guidance
             </p>
             <span class="wiki-phase-badge">{PHASE_LABEL}</span>
         </div>
@@ -349,7 +358,7 @@ def _render_intro_panel() -> None:
                     <strong>What this tool does</strong>
                     <span>
                         Fetches Wikipedia wikitext, prepares a translation draft, and runs
-                        template, reference, and Korean style checks before export.
+                        template, reference, link, media, category, and style checks.
                     </span>
                 </div>
                 <div class="wiki-intro-item">
@@ -514,6 +523,36 @@ def _need_source_and_draft() -> bool:
         _status_badge("warning", "Generate a draft using the sidebar controls first.")
         return False
     return True
+
+
+@st.cache_data(show_spinner=False)
+def _build_link_report(
+    source_wikitext: str,
+    source_lang: str,
+    target_lang: str,
+) -> dict:
+    """Build and cache link report because page-status API checks can be slow."""
+    preliminary = check_links(
+        source_wikitext,
+        source_lang,
+        target_lang,
+    )
+    source_targets = [
+        link["target"] for link in preliminary["source_internal_links"]
+    ]
+    candidates = get_language_link_candidates(source_lang, source_targets, target_lang)
+    target_titles = [
+        candidates.get(target, target)
+        for target in source_targets
+    ]
+    statuses = check_pages_status(target_lang, target_titles)
+    return check_links(
+        source_wikitext,
+        source_lang,
+        target_lang,
+        target_page_candidates=candidates,
+        target_page_statuses=statuses,
+    )
 
 
 def _tab_article_source(source_lang: str, target_lang: str, title: str) -> None:
@@ -808,6 +847,247 @@ def _tab_korean_style_check(target_lang: str) -> None:
         st.dataframe(table_rows, use_container_width=True, hide_index=True)
 
 
+def _tab_link_check(source_lang: str, target_lang: str) -> None:
+    _section(
+        "Link Check",
+        "Review internal links, blue-link availability, red-link risk, and temporary link suggestions.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    if not _need_source():
+        return
+
+    _status_badge(
+        "info",
+        "This report suggests link targets only. It does not rewrite article text automatically.",
+    )
+
+    try:
+        with st.spinner("Checking target-language page availability…"):
+            report = _build_link_report(
+                st.session_state.source_wikitext,
+                source_lang,
+                target_lang,
+            )
+    except WikiAPIError as exc:
+        _status_badge("error", f"Could not complete link API checks: {exc}")
+        return
+
+    summary = report["summary"]
+    _summary_cards(
+        [
+            ("Internal links", str(summary["total_internal_links"]), "Source article"),
+            ("Blue links", str(summary["blue_links"]), "Target page exists"),
+            ("Red link risk", str(summary["red_link_risks"]), "Needs review"),
+            ("Unknown", str(summary["unknown"]), "Could not verify"),
+        ]
+    )
+
+    if summary["red_link_risks"] == 0 and summary["unknown"] == 0:
+        _status_badge("pass", "No red-link risks found in checked target pages.")
+    else:
+        _status_badge(
+            "warning",
+            "Some links may need manual handling before publication.",
+        )
+
+    st.markdown("##### Temporary link template suggestion")
+    st.write(
+        f"For target language `{target_lang}`, consider: "
+        f"`{report['temporary_link_template_suggestion']}`"
+    )
+
+    rows = [
+        {
+            "Source link": row["source_link"],
+            "Display text": row["display_text"] or "",
+            "Target candidate": row["target_page_candidate"],
+            "Status": row["status"],
+            "Suggestion": row["suggestion"],
+        }
+        for row in report["blue_link_alignment_report"]
+    ]
+
+    st.markdown("##### Detailed link report")
+    if rows:
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        _status_badge("info", "No regular internal article links detected.")
+
+    if report["disambiguation_warnings"]:
+        st.markdown("##### Disambiguation warnings")
+        for warning in report["disambiguation_warnings"]:
+            _status_badge(
+                "warning",
+                f"{warning['target_page_candidate']} may be a disambiguation page. "
+                f"{warning['suggestion']}",
+            )
+
+
+def _tab_image_category_check() -> None:
+    _section(
+        "Image & Category Check",
+        "Review media links, copyright cautions, and target-wiki category presence.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    if not _need_source_and_draft():
+        return
+
+    report = check_images_and_categories(
+        st.session_state.source_wikitext,
+        st.session_state.draft_wikitext,
+    )
+
+    _summary_cards(
+        [
+            (
+                "Image files",
+                str(len(report["image_files_detected"])),
+                "Detected in source",
+            ),
+            (
+                "Source categories",
+                str(len(report["source_categories"])),
+                "Source article",
+            ),
+            (
+                "Draft categories",
+                str(len(report["translated_categories"])),
+                "Translation draft",
+            ),
+            (
+                "Category status",
+                "Review" if report["missing_categories_warning"] else "Present",
+                "Manual check",
+            ),
+        ]
+    )
+
+    st.markdown("##### Copyright and fair-use warnings")
+    for warning in report["copyright_warnings"]:
+        _status_badge("warning", warning)
+
+    st.markdown("##### Detected image files")
+    if report["image_files_detected"]:
+        st.dataframe(
+            report["image_files_detected"],
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        _status_badge("info", "No File:/Image: wikilinks detected in the source article.")
+
+    st.markdown("##### Categories")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Source categories**")
+        if report["source_categories"]:
+            for category in report["source_categories"]:
+                st.write(f"- `{category}`")
+        else:
+            st.write("None detected")
+    with col2:
+        st.markdown("**Draft categories**")
+        if report["translated_categories"]:
+            for category in report["translated_categories"]:
+                st.write(f"- `{category}`")
+        else:
+            st.write("None detected")
+
+    if report["missing_categories_warning"]:
+        _status_badge("warning", report["missing_categories_warning"])
+    else:
+        _status_badge(
+            "pass",
+            "Categories are present in the translation draft. Confirm they are blue-linked on the target wiki.",
+        )
+
+    _status_badge(
+        "info",
+        "Do not create categories automatically. Red-linked categories require manual handling.",
+    )
+
+
+def _tab_structure_check(source_lang: str, target_lang: str) -> None:
+    _section(
+        "Structure Check",
+        "Check references section status, disambiguation warnings, and publishing structure reminders.",
+    )
+    st.caption(MANUAL_REVIEW_NOTE)
+
+    if not _need_source_and_draft():
+        return
+
+    disambiguation_warnings: list[dict] = []
+    try:
+        with st.spinner("Refreshing link disambiguation checks…"):
+            link_report = _build_link_report(
+                st.session_state.source_wikitext,
+                source_lang,
+                target_lang,
+            )
+            disambiguation_warnings = link_report["disambiguation_warnings"]
+    except WikiAPIError as exc:
+        _status_badge("warning", f"Could not refresh disambiguation checks: {exc}")
+
+    report = check_wiki_structure(
+        st.session_state.draft_wikitext,
+        target_lang,
+        disambiguation_warnings,
+    )
+    references_section = report["references_section"]
+
+    _summary_cards(
+        [
+            (
+                "References section",
+                "Present" if references_section["references_section_present"] else "Missing",
+                f"Expected: {', '.join(references_section['expected_headings'])}",
+            ),
+            (
+                "Headings found",
+                str(len(references_section["headings_detected"])),
+                "Draft structure",
+            ),
+            (
+                "Disambiguation warnings",
+                str(len(report["disambiguation_warnings"])),
+                "Possible issues",
+            ),
+            ("Publishing mode", "Manual", "No auto-publish"),
+        ]
+    )
+
+    if references_section["references_section_present"]:
+        _status_badge("pass", "Expected references section heading detected.")
+    else:
+        _status_badge(
+            "warning",
+            references_section["missing_references_section_warning"],
+        )
+
+    if references_section["headings_detected"]:
+        st.markdown("##### Headings detected")
+        for heading in references_section["headings_detected"]:
+            st.write(f"- `{heading}`")
+
+    st.markdown("##### Disambiguation warnings")
+    if report["disambiguation_warnings"]:
+        for warning in report["disambiguation_warnings"]:
+            _status_badge(
+                "warning",
+                f"{warning['target_page_candidate']} may be a disambiguation page. "
+                f"{warning['suggestion']}",
+            )
+    else:
+        _status_badge("pass", "No possible disambiguation pages detected in checked links.")
+
+    st.markdown("##### Publishing structure reminders")
+    for reminder in report["publishing_structure_reminders"]:
+        _status_badge("info", reminder)
+
+
 def _tab_export() -> None:
     _section(
         "Export",
@@ -857,7 +1137,7 @@ def _tab_about() -> None:
 **Workflow**
 1. Fetch source wikitext from Wikipedia.
 2. Generate a translation draft (placeholder in current version).
-3. Run template, reference, and Korean style checks.
+3. Run template, reference, link, media, category, structure, and Korean style checks.
 4. Export and complete human proofreading before publishing.
 
 **Policy reminders**
@@ -896,6 +1176,9 @@ def main() -> None:
         tab_template,
         tab_reference,
         tab_korean,
+        tab_link,
+        tab_image_category,
+        tab_structure,
         tab_export,
         tab_about,
     ) = st.tabs(
@@ -905,6 +1188,9 @@ def main() -> None:
             "Template Check",
             "Reference Check",
             "Korean Style Check",
+            "Link Check",
+            "Image & Category Check",
+            "Structure Check",
             "Export",
             "About",
         ]
@@ -924,6 +1210,15 @@ def main() -> None:
 
     with tab_korean:
         _tab_korean_style_check(target_lang)
+
+    with tab_link:
+        _tab_link_check(source_lang, target_lang)
+
+    with tab_image_category:
+        _tab_image_category_check()
+
+    with tab_structure:
+        _tab_structure_check(source_lang, target_lang)
 
     with tab_export:
         _tab_export()

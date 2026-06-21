@@ -77,6 +77,31 @@ REF_BLOCK_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+FILE_PREFIXES = ("file:", "image:")
+CATEGORY_PREFIX = "category:"
+SKIPPED_LINK_PREFIXES = (
+    "file:",
+    "image:",
+    "category:",
+    "template:",
+    "help:",
+    "wikipedia:",
+    "wp:",
+    "special:",
+)
+
+TEMPORARY_LINK_TEMPLATE_SUGGESTIONS = {
+    "ko": "ko:틀:임시링크",
+    "zh": "zh:Template:Internal link helper",
+    "en": "Template:Interlanguage link",
+}
+
+REFERENCE_SECTION_TITLES = {
+    "en": ("references",),
+    "ko": ("각주",),
+    "zh": ("参考资料", "參考資料"),
+}
+
 METADATA_PATTERNS: dict[str, re.Pattern[str]] = {
     "url": re.compile(r"\b(?:url|website)\s*=\s*([^\|\}\n]+)", re.IGNORECASE),
     "doi": re.compile(r"\bdoi\s*=\s*([^\|\}\n]+)", re.IGNORECASE),
@@ -505,3 +530,273 @@ def check_korean_encyclopedic_style(text: str) -> list[dict[str, Any]]:
                 start = index + len(phrase)
 
     return findings
+
+
+def _split_wikilink_target(raw_target: str) -> str:
+    """Remove anchors from a wikilink target while keeping the page title."""
+    return raw_target.split("#", 1)[0].strip()
+
+
+def _normalize_page_title(title: str) -> str:
+    """Normalize whitespace and underscores in a page/category/file title."""
+    return " ".join(title.replace("_", " ").strip().split())
+
+
+def _is_regular_internal_link(target: str) -> bool:
+    normalized = target.strip().lower()
+    if not normalized or normalized.startswith("#"):
+        return False
+    if ":" in normalized:
+        return not normalized.startswith(SKIPPED_LINK_PREFIXES)
+    return True
+
+
+def extract_internal_links(wikitext: str) -> list[dict[str, str]]:
+    """
+    Extract regular article internal links from wikitext.
+
+    File, image, category, template, help, and special namespace links are excluded.
+    """
+    if not wikitext.strip():
+        return []
+
+    code = mwparserfromhell.parse(wikitext)
+    links: list[dict[str, str]] = []
+    for wikilink in code.filter_wikilinks():
+        raw_target = str(wikilink.title).strip()
+        target = _normalize_page_title(_split_wikilink_target(raw_target))
+        if not _is_regular_internal_link(target):
+            continue
+
+        display_text = str(wikilink.text).strip() if wikilink.text else ""
+        links.append(
+            {
+                "source_link": str(wikilink),
+                "target": target,
+                "display_text": display_text,
+            }
+        )
+
+    return links
+
+
+def _temporary_link_template_for(target_lang: str) -> str:
+    normalized = target_lang.strip().lower()
+    return TEMPORARY_LINK_TEMPLATE_SUGGESTIONS.get(
+        normalized,
+        "Template:Interlanguage link or the target wiki's local temporary link template",
+    )
+
+
+def check_links(
+    source_wikitext: str,
+    source_lang: str,
+    target_lang: str,
+    target_page_candidates: dict[str, str] | None = None,
+    target_page_statuses: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """
+    Build a blue/red link risk report for source internal links.
+
+    API lookups are provided by the caller so this function stays focused on
+    wikitext analysis and report generation.
+    """
+    internal_links = extract_internal_links(source_wikitext)
+    candidates = target_page_candidates or {}
+    statuses = target_page_statuses or {}
+    temporary_template = _temporary_link_template_for(target_lang)
+
+    report_rows: list[dict[str, Any]] = []
+    for link in internal_links:
+        source_target = link["target"]
+        target_candidate = candidates.get(source_target, source_target)
+        status_info = statuses.get(target_candidate, {})
+        exists = bool(status_info.get("exists"))
+        possible_disambiguation = bool(status_info.get("possible_disambiguation"))
+
+        if exists:
+            status = "blue link"
+            suggestion = "Can link to the target-language page after human review."
+        elif target_candidate in statuses:
+            status = "red link risk"
+            suggestion = (
+                f"Target page may not exist. Consider using temporary link template: "
+                f"{temporary_template}."
+            )
+        else:
+            status = "unknown"
+            suggestion = "Could not verify this target page. Check manually before publishing."
+
+        report_rows.append(
+            {
+                "source_link": link["source_link"],
+                "source_target": source_target,
+                "display_text": link["display_text"],
+                "source_language": source_lang,
+                "target_language": target_lang,
+                "target_page_candidate": target_candidate,
+                "status": status,
+                "suggestion": suggestion,
+                "possible_disambiguation": possible_disambiguation,
+                "disambiguation_suggestion": (
+                    "Please confirm this link points to the correct article, not a disambiguation page."
+                    if possible_disambiguation
+                    else ""
+                ),
+            }
+        )
+
+    status_counts = Counter(row["status"] for row in report_rows)
+    disambiguation_warnings = [
+        {
+            "link": row["source_link"],
+            "target_page_candidate": row["target_page_candidate"],
+            "possible_disambiguation": True,
+            "suggestion": row["disambiguation_suggestion"],
+        }
+        for row in report_rows
+        if row["possible_disambiguation"]
+    ]
+
+    return {
+        "source_internal_links": internal_links,
+        "blue_link_alignment_report": report_rows,
+        "summary": {
+            "total_internal_links": len(report_rows),
+            "blue_links": status_counts.get("blue link", 0),
+            "red_link_risks": status_counts.get("red link risk", 0),
+            "unknown": status_counts.get("unknown", 0),
+            "possible_disambiguation_count": len(disambiguation_warnings),
+        },
+        "temporary_link_template_suggestion": temporary_template,
+        "disambiguation_warnings": disambiguation_warnings,
+    }
+
+
+def extract_image_files(wikitext: str) -> list[dict[str, str]]:
+    """Extract File:/Image: wikilinks from wikitext."""
+    if not wikitext.strip():
+        return []
+
+    code = mwparserfromhell.parse(wikitext)
+    images: list[dict[str, str]] = []
+    for wikilink in code.filter_wikilinks():
+        raw_target = str(wikilink.title).strip()
+        normalized = raw_target.lower().replace("_", " ")
+        if not normalized.startswith(FILE_PREFIXES):
+            continue
+
+        file_name = raw_target.split(":", 1)[1].strip() if ":" in raw_target else raw_target
+        images.append(
+            {
+                "raw_link": str(wikilink),
+                "file_name": _normalize_page_title(file_name),
+                "namespace": raw_target.split(":", 1)[0],
+            }
+        )
+
+    return images
+
+
+def extract_categories(wikitext: str) -> list[str]:
+    """Extract category names from wikitext."""
+    if not wikitext.strip():
+        return []
+
+    code = mwparserfromhell.parse(wikitext)
+    categories: list[str] = []
+    for wikilink in code.filter_wikilinks():
+        raw_target = str(wikilink.title).strip()
+        if raw_target.lower().replace("_", " ").startswith(CATEGORY_PREFIX):
+            category_name = raw_target.split(":", 1)[1].strip()
+            categories.append(_normalize_page_title(category_name))
+
+    return categories
+
+
+def check_images_and_categories(
+    source_wikitext: str,
+    translated_wikitext: str,
+) -> dict[str, Any]:
+    """Check image links and category presence without downloading or uploading media."""
+    source_categories = extract_categories(source_wikitext)
+    translated_categories = extract_categories(translated_wikitext)
+    image_files = extract_image_files(source_wikitext)
+
+    missing_categories_warning = ""
+    if source_categories and not translated_categories:
+        missing_categories_warning = (
+            "Source article has categories, but the translation draft has none. "
+            "Add appropriate target-wiki categories before publishing."
+        )
+    elif not translated_categories:
+        missing_categories_warning = (
+            "No categories detected in the translation draft. New articles should usually "
+            "include target-wiki categories."
+        )
+
+    copyright_warnings = [
+        "Wikimedia Commons free-license images are usually safer, but still require review.",
+        "Fair use images may not be allowed on Korean Wikipedia.",
+        "Chinese Wikipedia has its own non-free content rules.",
+        "Do not copy images from the internet unless licensing is clearly compatible.",
+        "This tool does not download, upload, or license-check images automatically.",
+    ]
+
+    return {
+        "image_files_detected": image_files,
+        "source_categories": source_categories,
+        "translated_categories": translated_categories,
+        "missing_categories_warning": missing_categories_warning,
+        "copyright_warnings": copyright_warnings,
+    }
+
+
+def check_references_section(text: str, target_lang: str) -> dict[str, Any]:
+    """Check whether a target-language references section heading appears."""
+    normalized_lang = target_lang.strip().lower()
+    expected_titles = REFERENCE_SECTION_TITLES.get(
+        normalized_lang,
+        ("references", "参考资料", "參考資料", "각주"),
+    )
+
+    headings = [
+        match.group(1).strip()
+        for match in re.finditer(r"^\s*==+\s*(.*?)\s*==+\s*$", text, re.MULTILINE)
+    ]
+    normalized_headings = {heading.strip().lower() for heading in headings}
+    found = any(title.lower() in normalized_headings for title in expected_titles)
+
+    warning = ""
+    if not found:
+        warning = (
+            "No expected references section heading was detected. Add the target-wiki "
+            "references section before publishing if the article contains citations."
+        )
+
+    return {
+        "target_language": normalized_lang,
+        "expected_headings": list(expected_titles),
+        "headings_detected": headings,
+        "references_section_present": found,
+        "missing_references_section_warning": warning,
+    }
+
+
+def check_wiki_structure(
+    translated_wikitext: str,
+    target_lang: str,
+    disambiguation_warnings: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Combine structural reminders used before manual publication."""
+    references_section = check_references_section(translated_wikitext, target_lang)
+    return {
+        "references_section": references_section,
+        "disambiguation_warnings": disambiguation_warnings or [],
+        "publishing_structure_reminders": [
+            "Confirm the article has an appropriate lead, sections, references, and categories.",
+            "Review all blue links and red links manually before publishing.",
+            "Use temporary interlanguage link templates only when appropriate for the target wiki.",
+            "Do not publish directly from this tool; use your Wikipedia sandbox and review checklist.",
+        ],
+    }
