@@ -51,15 +51,27 @@ streamlit run app.py
 
 Open the URL shown in the terminal (usually `http://localhost:8501`).
 
+### UI (editorial review style)
+
+The interface uses a light, Wikipedia-inspired editorial layout:
+
+- White / light-gray workspace with Wikipedia blue accents
+- Sidebar project controls (languages, title, fetch, generate draft)
+- Main tabs for source review, draft review, compliance checks, export, and about
+- Status labels: Passed, Warning, Needs review, Info
+
 ### Usage
 
-1. Set **Source language** (e.g. `en`), **Target language** (e.g. `ko`, `zh`, `ja`), and **Article title** (e.g. `Alan Turing`) in the sidebar.
-2. **Fetch Article** — load wikitext from the source wiki.
-3. **Translate Draft** — generate a placeholder draft.
-4. **Template Check** — verify Infobox, citation templates, and other templates are preserved.
-5. **Reference Check** — verify refs, named refs, URLs, DOIs, ISBNs, and other metadata.
-6. **Korean Style Check** — review suggestions for encyclopedic Korean style (when targeting `ko`).
-7. **Export** — copy or download the draft wikitext after manual review.
+1. In the **sidebar**, set **Source language** (e.g. `en`), **Target language** (e.g. `ko`), and **Article title** (e.g. `Alan Turing`).
+2. Click **Fetch article** in the sidebar to load wikitext.
+3. Click **Generate draft** to create a placeholder translation draft.
+4. **Article Source** — preview fetched wikitext.
+5. **Translation Draft** — preview the draft.
+6. **Template Check** — verify Infobox, citation templates, and other templates are preserved.
+7. **Reference Check** — verify refs, named refs, URLs, DOIs, ISBNs, and other metadata.
+8. **Korean Style Check** — review suggestions for encyclopedic Korean style (when targeting `ko`).
+9. **Export** — copy or download the draft wikitext after manual review.
+10. **About** — workflow and policy reminders.
 
 ## Quality check details
 
