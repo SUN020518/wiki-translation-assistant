@@ -41,5 +41,9 @@ Thumbs.db
 .env
 .env.*
 
+# Local SQLite storage
+app.db
+*.db
+
 # Logs
 *.log

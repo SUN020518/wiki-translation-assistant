@@ -6,6 +6,13 @@ from collections import Counter
 
 import streamlit as st
 
+from database import (
+    delete_project,
+    get_all_projects,
+    get_project_by_id,
+    init_db,
+    save_translation_project,
+)
 from translator import (
     DEFAULT_PROVIDER,
     PLACEHOLDER_MARKER,
@@ -1667,6 +1674,103 @@ def _tab_export() -> None:
     )
 
 
+def _project_label(project: dict) -> str:
+    return (
+        f"#{project['id']} · {project['article_title']} · "
+        f"{project['source_language']} → {project['target_language']} · "
+        f"{project['provider']} · {project['created_at']}"
+    )
+
+
+def _load_project_into_session(project: dict) -> None:
+    st.session_state.article_title = project["article_title"] or ""
+    st.session_state.target_title = project["target_article_title"] or ""
+    st.session_state.source_lang = project["source_language"] or "en"
+    st.session_state.target_lang = project["target_language"] or "ko"
+    st.session_state.translation_provider = project["provider"] or DEFAULT_PROVIDER
+    st.session_state.source_wikitext = project["source_wikitext"] or ""
+    st.session_state.draft_wikitext = project["translated_wikitext"] or ""
+    st.session_state.translation_chunk_count = 0
+    st.session_state.translation_warnings = [
+        f"Loaded saved project #{project['id']} from local SQLite history."
+    ]
+    st.session_state.fetch_error = ""
+    st.session_state.last_fetched_title = project["article_title"] or ""
+
+
+def _tab_history(source_lang: str, target_lang: str, title: str, target_title: str) -> None:
+    _section(
+        "History",
+        "Save, load, or delete local SQLite translation project records.",
+    )
+    st.caption(
+        "History is stored locally in `app.db`. It is not multi-user cloud storage and should not be committed."
+    )
+
+    st.markdown("##### Save current project")
+    if not st.session_state.source_wikitext and not st.session_state.draft_wikitext:
+        _status_badge("info", "No source or draft wikitext is available to save yet.")
+    if st.button("Save Current Project", use_container_width=False):
+        if not st.session_state.source_wikitext and not st.session_state.draft_wikitext:
+            _status_badge("warning", "Fetch an article or generate a draft before saving.")
+        else:
+            project_id = save_translation_project(
+                article_title=title,
+                target_article_title=target_title,
+                source_language=source_lang,
+                target_language=target_lang,
+                provider=st.session_state.translation_provider,
+                source_wikitext=st.session_state.source_wikitext,
+                translated_wikitext=st.session_state.draft_wikitext,
+            )
+            _status_badge("pass", f"Saved current project as local history record #{project_id}.")
+
+    st.markdown("##### Previous Projects")
+    projects = get_all_projects()
+    if not projects:
+        _status_badge("info", "No saved projects yet.")
+        return
+
+    _summary_cards(
+        [
+            ("Saved projects", str(len(projects)), "Local app.db"),
+            ("Storage", "SQLite", "Local only"),
+            ("Latest", projects[0]["created_at"], "Newest record"),
+            ("Auto-publish", "No", "Manual workflow"),
+        ]
+    )
+
+    selected_id = st.selectbox(
+        "Previous Projects",
+        options=[project["id"] for project in projects],
+        format_func=lambda project_id: _project_label(
+            next(project for project in projects if project["id"] == project_id)
+        ),
+    )
+
+    selected_summary = next(project for project in projects if project["id"] == selected_id)
+    st.write(
+        f"Selected: **{selected_summary['article_title']}** "
+        f"({selected_summary['source_language']} → {selected_summary['target_language']}, "
+        f"{selected_summary['provider']}, {selected_summary['created_at']})"
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Load Selected Project", use_container_width=True):
+            project = get_project_by_id(int(selected_id))
+            if project is None:
+                _status_badge("error", "Selected project could not be found.")
+            else:
+                _load_project_into_session(project)
+                st.rerun()
+    with col2:
+        if st.button("Delete Selected Project", use_container_width=True):
+            delete_project(int(selected_id))
+            _status_badge("pass", f"Deleted local history record #{selected_id}.")
+            st.rerun()
+
+
 def _tab_about() -> None:
     _section(
         "About",
@@ -1699,6 +1803,7 @@ def _tab_about() -> None:
 
 
 def main() -> None:
+    init_db()
     _init_session_state()
     _inject_styles()
 
@@ -1729,6 +1834,7 @@ def main() -> None:
         tab_attribution,
         tab_edit_filter,
         tab_final_review,
+        tab_history,
         tab_export,
         tab_about,
     ) = st.tabs(
@@ -1746,6 +1852,7 @@ def main() -> None:
             "Attribution",
             "Edit Filter Risk",
             "Final Review",
+            "History",
             "Export",
             "About",
         ]
@@ -1789,6 +1896,9 @@ def main() -> None:
 
     with tab_final_review:
         _tab_final_review(source_lang, target_lang, title, target_title)
+
+    with tab_history:
+        _tab_history(source_lang, target_lang, title, target_title)
 
     with tab_export:
         _tab_export()

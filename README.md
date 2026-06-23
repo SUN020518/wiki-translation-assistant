@@ -44,6 +44,14 @@ A semi-automatic Wikipedia translation helper. This tool fetches article wikitex
 - **Chunked translation** — translates section/paragraph chunks instead of sending very long articles at once
 - **Translation warnings** — reports provider, chunk count, API-key warnings, skipped template-heavy chunks, and failed chunks
 
+### Phase 6A (Simple SQLite history)
+
+- **SQLite History** — save translation projects to a local `app.db` file
+- **Save project** — store source wikitext, translated draft, languages, titles, provider, and timestamps
+- **Load previous project** — restore a saved project into the current Streamlit session
+- **Delete project** — remove a local history record
+- **Local storage only** — `app.db` is not multi-user cloud storage and should not be committed
+
 These checks are **assistive only**. They cannot replace human proofreading. Do not publish AI translations without thorough manual review. All new factual content on Wikipedia must cite reliable sources. Image copyright must always be confirmed manually. Do not try to bypass edit filters; fix the underlying policy or content issue instead.
 
 ## Requirements
@@ -104,6 +112,8 @@ Open the URL shown in the terminal (usually `http://localhost:8501`).
 
 Use `app.py` as the app entry point. No Wikipedia login or edit token is required. Placeholder mode works without secrets. For OpenAI mode, configure `OPENAI_API_KEY` in the app's Streamlit Cloud secrets.
 
+The local SQLite history feature also runs on Streamlit Cloud, but `app.db` is a temporary app file and is not suitable as a formal multi-user database.
+
 ### UI (editorial review style)
 
 The interface uses a light, Wikipedia-inspired editorial layout:
@@ -132,8 +142,9 @@ The interface uses a light, Wikipedia-inspired editorial layout:
 15. **Attribution** — prepare a translation-source edit summary.
 16. **Edit Filter Risk** — review possible moderation risks and safe compliance fixes.
 17. **Final Review** — combine all checks into a final publication-readiness list.
-18. **Export** — copy or download the draft wikitext after manual review.
-19. **About** — workflow and policy reminders.
+18. **History** — save, load, or delete local SQLite project records.
+19. **Export** — copy or download the draft wikitext after manual review.
+20. **About** — workflow and policy reminders.
 
 ## Quality check details
 
@@ -271,6 +282,20 @@ The protection layer is not perfect. After generating an AI draft, always run:
 
 AI output must be reviewed manually before any publication.
 
+### SQLite History
+
+The History tab stores saved translation projects in a local SQLite file named `app.db`.
+
+You can:
+
+- Save the current project
+- Load a previous project
+- Delete a saved project
+
+Saved records include article title, target article title, source language, target language, provider, source wikitext, translated wikitext, and timestamps.
+
+`app.db` is local storage only. It is ignored by Git and should not be committed to GitHub. On Streamlit Community Cloud, this file may be temporary and should not be treated as persistent multi-user storage.
+
 ## Important disclaimer
 
 - **Do not automatically publish AI or machine translations to Wikipedia.**
@@ -279,6 +304,7 @@ AI output must be reviewed manually before any publication.
 - **Do not add facts that were not present in the source unless you add reliable sources.**
 - **Do not invent references or citations.**
 - **Do not commit API keys.**
+- **Do not commit `app.db` or other local database files.**
 - **Image copyright and fair-use status must be checked manually.**
 - **Do not attempt to bypass edit filters.**
 - **Human proofreading is required before publication.**
@@ -290,6 +316,7 @@ AI output must be reviewed manually before any publication.
 | File | Purpose |
 |------|---------|
 | `app.py` | Streamlit UI |
+| `database.py` | Local SQLite history storage |
 | `wiki_api.py` | MediaWiki API client (fetch wikitext, page status, language links) |
 | `translator.py` | Placeholder/OpenAI translation logic with wikitext token protection |
 | `validator.py` | Input validation + template/reference/link/media/category/structure/publishing/Korean style checkers |
